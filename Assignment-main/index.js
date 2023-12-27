@@ -1,335 +1,236 @@
-const { error } = require('console');
-const express = require('express')
-const app = express()
-const port = 2000
+const express = require('express');
+const cors = require('cors');
 const jwt = require('jsonwebtoken');
+const { MongoClient, ObjectId } = require('mongodb');
+
+const app = express();
+const port =  3000;
+const MongoURI = 'mongodb+srv://amareen:4252621812-aA@cluster0.cihdsmn.mongodb.net/'; 
+
+app.use(express.json());
+app.use(cors());
 
 // MongoDB setup
-const { MongoClient } = require('mongodb');
-const uri = 'mongodb+srv://Bazli:Bazli35@cluster0.maezorf.mongodb.net/HotelVisitorManagement';
+const client = new MongoClient(MongoURI, { useNewUrlParser: true, useUnifiedTopology: true })
+const swaggerJsdoc = require('swagger-jsdoc');
+const swaggerUi = require('swagger-ui-express');
+const options = {
+  definition: {
+    openapi: '3.0.0',
+    info: {
+      title: 'Gym Fitness Management System',
+      version: '1.0.0',
+    },
+  },
+  apis: ['./swagger.js'],
+};
 
+const swaggerSpec = swaggerJsdoc(options);
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 async function connectToMongoDB() {
-const client = new MongoClient(uri, { useNewUrlParser: true, useUnifiedTopology: true });
-const swaggerUi  = require('swagger-ui-express');
-const swaggerDocument = require('./swagger.json');
-app.use(cors());
-app.use('/api-docs', swaggerUi.serve,swaggerUi.setup(swaggerDocument));
+  try {
+    await client.connect();
+    console.log('Connected to MongoDB');
+  } catch (error) {
+    console.error('Error connecting to MongoDB:', error);
+  }
 }
 
-
-//const client = new MongoClient(uri);
-
-let visitDetailCollection;
-let securityCollection;
-let hostCollection;
+// Collections
 let adminCollection;
+let hostCollectionName;
+
+const db = client.db('CondoVisitorManagement');
+  adminCollection = db.collection('adminCollection');
+  //visitDetailCollection = db.collection('visitDetailCollectionName');
+  //securityCollection = db.collection('securityCollectionName');
+  hostCollectionName = db.collection('hostCollectionName')
 
 
-MongoClient.connect(uri, { useNewUrlParser: true, useUnifiedTopology: true })
-.then(client => {
-  console.log('Connected to MongoDB'); 
-  const db = client.db('HotelVisitorManagement');
-  //adminCollection = db.collection('adminCollection');
-  visitDetailCollection = db.collection('visitDetailCollectionName');
-  securityCollection = db.collection('securityCollectionName');
-  hostCollection = db.collection('hostCollectionName');
-  
-  
-  // Start the server or perform other operations
 
-  const { ObjectId } = require('mongodb');
-
- async function login(reqUsername, reqPassword) {
-   const client = new MongoClient(uri);
-   try {
-     await client.connect();
-
-     // Validate the request p1ayload
-     if (!reqUsername || !reqPassword) {
-       throw new Error('Missing required fields');
-     }
-
-     let matchuser = await hostCollection.findOne({ Username: reqUsername });
-
-     if (!matchuser) {
-       throw new Error('User not found!');
-     }
-     if (matchuser.Password === reqPassword) {
-       const token = generateToken(matchuser);
-       return {
-        user: matchuser,
-        token: token,
-       };
-     } else {
-       throw new Error('Invalid password');
-     }
-   } catch (error) {
-     console.error('Login Error:', error);
-     throw new Error('An error occurred during login.');
-   } finally {
-     await client.close();
-   }
-  }
-
-  async function register(reqUsername, reqPassword, reqName, reqEmail) {
-   const client = new MongoClient(uri);
-   try {
-     await client.connect();
+// Connect to MongoDB
+connectToMongoDB();
 
 
-     // Validate the request payload
-     if (!reqUsername || !reqPassword || !reqName || !reqEmail) {
-       throw new Error('Missing required fields');
-     }
+// Register new user
+async function registerUser(username, password, userType) {
+  try {
+    if (!username || !password || !userType) {
+      throw new Error('Missing required fields');
+    }
 
-     await hostCollection.insertOne({
-       Username: reqUsername,
-       Password: reqPassword,
-       name: reqName,
-       email: reqEmail,
-     });
+    const collection = userType === 'admin' ? adminCollection : hostCollectionName;
 
-     return 'Registration Complete!!';
-     } catch (error) {
-     console.error('Registration Error:', error);
-     throw new Error('An error occurred during registration.');
-    } finally {
-     await client.close();
-   }
-  }
+    const existingUser = await collection.findOne({ username });
+    if (existingUser) {
+      throw new Error('Username already exists');
+    }
 
-  function generateToken(user) {
-    const payload = {
-      username: user.Username,
+    const newUser = {
+      username,
+      password,
+      userType,
     };
-    const token = jwt.sign(payload, 'inipassword', { expiresIn: '1h' });
-    return token;
+
+    await collection.insertOne(newUser);
+
+    return 'Registration successful';
+  } catch (error) {
+    console.error('Error registering user:', error.message);
+    throw new Error('Registration failed');
   }
-  
-  function verifyToken(req, res, next) {
-    let header = req.headers.authorization;
-    console.log(header);
-  
-    let token = header.split(' ')[1];
-  
-    jwt.verify(token, 'inipassword', function (err, decoded) {
-      if (err) {
-        return res.status(401).send('Invalid Token');
-      }
-  
-      req.user = decoded;
-      next();
-    });
+}
+
+// Express routes
+
+app.post('/register/user', async (req, res) => {
+  const { username, password } = req.body;
+  try {
+    const result = await registerUser(username, password, 'user');
+    res.status(200).json({ message: result });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
   }
-  
-
-  // Express setup
-  app.use(express.json());
-
-
-  app.post('/login', (req, res) => {
-    console.log(req.body);
-
-    login(req.body.Username, req.body.Password)
-      .then((result) => {
-        let token = generateToken(result);
-        res.send(token);
-      })
-      .catch((error) => {
-        res.status(400).send(error.message);
-      });
-  });
-
-  app.post('/register', (req, res) => {
-    console.log(req.body);
-
-    register(req.body.Username, req.body.Password, req.body.name, req.body.email)
-      .then((result) => {
-        res.send(result);
-      })
-      .catch((error) => {
-      res.status(400).send(error.message);
-      });
-  });
-
-
-  app.post('/logout', (req, res) => {
-    // Perform any logout-related tasks here
-    res.send('Logout successful');
-  });
-
- 
-  //Create
-  app.post('/create-visit', async (req, res) => {
-    try {
-      const { visitorId, visitorName, gender, citizenship, visitorAddress, phoneNo, vehicleNo, hostId, visitDate,place , purpose } = req.body;
-
-      // Ensure all required fields are present
-      if (!visitorId || !visitorName || !gender || !hostId || !visitDate || !purpose || !place || !citizenship || !visitorAddress || !phoneNo || !vehicleNo) {
-        throw new Error('Missing required fields');
-      }
-
-      const db = client.db('HotelVisitorManagement');
-      const visitDetailCollection = db.collection('visitDetailCollectionName');
-
-      // Insert the visit data into the visitDetailCollection
-      const visitData = {
-        visitorId,
-        visitorName,
-        gender,
-        citizenship,
-        visitorAddress,
-        phoneNo,
-        vehicleNo,
-        hostId,
-        visitDate,
-        place,
-        purpose
-      };
-      await visitDetailCollection.insertOne(visitData);
-
-      res.send('Visit created successfully');
-    } catch (error) {
-      console.error('Error creating visit:', error);
-      res.status(500).send('An error occurred while creating the visit');
-    }
-  });
-
- // Update visitor (only admin)
- app.patch('/update-visit/:visitId',verifyToken, (req, res) => {
-  const visitId = req.params.visitId;
-  const { visitorId, visitorName, gender, citizenship, visitorAddress, phoneNo, vehicleNo, hostId, visitDate, place, purpose } = req.body;
-
-  if (!visitorId && !visitorName && !gender && !citizenship && !visitorAddress && !phoneNo && !vehicleNo && !hostId && !visitDate && !place && !purpose) {
-    res.status(400).send('No fields provided for update');
-    return;
-  }
-
-  const updateData = {};
-
-  if (visitorId) updateData.visitorId = visitorId;
-  if (visitorName) updateData.visitorName = visitorName;
-  if (gender) updateData.gender = gender;
-  if (citizenship) updateData.citizenship = citizenship;
-  if (visitorAddress) updateData.visitorAddress = visitorAddress;
-  if (phoneNo) updateData.phoneNo = phoneNo;
-  if (vehicleNo) updateData.vehicleNo = vehicleNo;
-  if (hostId) updateData.hostId = hostId;
-  if (visitDate) updateData.visitDate = visitDate;
-  if (place) updateData.place = place;
-  if (purpose) updateData.purpose = purpose;
-
-  visitDetailCollection
-    .findOneAndUpdate({ _id: new ObjectId(visitId) }, { $set: updateData })
-    .then((result) => {
-      if (!result.value) {
-        // No matching document found
-        throw new Error('Visit not found');
-      }
-      res.send('Visit updated successfully');
-    })
-    .catch((error) => {
-      console.error('Error updating visit:', error);
-      if (error.message === 'Visit not found') {
-        res.status(404).send('Visit not found');
-      } else {
-        res.status(500).send('An error occurred while updating the visit');
-      }
-    });
 });
 
+app.post('/register/admin', async (req, res) => {
+  const { username, password } = req.body;
+  try {
+    const result = await registerUser(username, password, 'admin');
+    res.status(200).json({ message: result });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
 
-
-  // Delete visit (only admin)
-  app.delete('/delete-visit/:visitDetailId',verifyToken, (req, res) => {
-    const visitDetailId = req.params.visitDetailId;
-  
-    visitDetailCollection
-      .deleteOne({ _id: new ObjectId(visitDetailId) })
-      .then(() => {
-        res.send('Visit detail deleted successfully');
-      })
-      .catch((error) => {
-        console.error('Error deleting visit detail:', error);
-        res.status(500).send('An error occurred while deleting the visit detail');
-      });
-  });
-  
-  // Read visit details (only admin)
+async function deleteUser(username, userType) {
+  try {
+    const collection = userType === 'admin' ? adminCollection : hostCollectionName;
     
-  app.get('/visit-details',verifyToken, (req, res) => {
-    visitDetailCollection
-      .find({})
-      .toArray()
-      .then((visitDetails) => {
-        res.json(visitDetails);
-      })
-      .catch((error) => {
-        console.error('Error retrieving visit details:', error);
-        res.status(500).send('An error occurred while retrieving visit details');
-      });
-  });
-
-  app.post('/register-security', (req, res) => {
-    const { name, id, workshift, duration, date } = req.body;
-  
-    // Validate the request payload
-    if (!name || !id || !workshift || !duration || !date) {
-      res.status(400).send('Missing required fields');
-      return;
+    const result = await collection.deleteOne({ username });
+    
+    if (result.deletedCount === 0) {
+      throw new Error('User not found');
     }
-  
-    securityCollection
-      .insertOne({ name, id, workshift, duration, date })
-      .then(() => {
-        res.send('Security guard registered successfully');
-      })
-      .catch((error) => {
-        console.error('Error registering security guard:', error);
-        res.status(500).send('An error occurred while registering the security guard');
-      });
-  });
-  
 
-  app.post('/login-security', (req, res) => {
-    console.log(req.body);
-  
-    const { id, name } = req.body;
-  
-    // Validate the request payload
-    if (!id || !name) {
-      res.status(400).send('Missing required fields');
-      return;
-    }
-  
-    securityCollection
-      .findOne({ id, name })
-      .then((guard) => {
-        if (!guard) {
-          res.status(401).send('Invalid credentials');
-          return;
-        }
-  
-        // Generate a token for authentication
-        const token = generateToken(guard);
-  
-        res.send(token);
-      })
-      .catch((error) => {
-        console.error('Error during security guard login:', error);
-        res.status(500).send('An error occurred during login');
-      });
-  });
-  
+    return 'User deleted successfully';
+  } catch (error) {
+    console.error('Error deleting user:', error.message);
+    throw new Error('Deletion failed');
+  }
+}
 
-
-  app.listen(port, () => {
-    console.log(`Example app listening on port ${port}`);
-  });
-})
-  .catch(err => {
-  console.error('Failed to connect to MongoDB:', err);
+// Express route for deleting a user
+app.delete('/delete/user/:username/:userType', async (req, res) => {
+  const { username, userType } = req.params;
+  try {
+    const result = await deleteUser(username, userType);
+    res.status(200).json({ message: result });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
 });
 
 
+// Get all user details function
+async function getAllUsers(userType) {
+  try {
+    const collection = userType === 'admin' ? adminCollection : hostCollectionName;
 
+    const users = await collection.find({}).toArray();
+
+    return users;
+  } catch (error) {
+    console.error('Error getting all users:', error.message);
+    throw new Error('Failed to retrieve user details');
+  }
+}
+
+// Express route for getting all users
+app.get('/users/:userType', async (req, res) => {
+  const { userType } = req.params;
+  try {
+    const users = await getAllUsers(userType);
+    res.status(200).json(users);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Login User function
+async function loginUser(reqUsername, reqPassword) {
+  try {
+    if (!reqUsername || !reqPassword) {
+      throw new Error('Missing required fields');
+    }
+
+    const user = await hostCollectionName.findOne({ username: reqUsername });
+
+    if (!user || user.password !== reqPassword) {
+      throw new Error('Invalid credentials');
+    }
+
+    const token = generateToken(user);
+
+    return {
+      message: 'Login successful',
+      token: token,
+    };
+  } catch (error) {
+    console.error('Login Error:', error.message);
+    throw new Error('Login failed');
+  }
+}
+
+// Express route for user login
+app.post('/login', async (req, res) => {
+  const { username, password } = req.body;
+  try {
+    const result = await loginUser(username, password);
+    res.status(200).json(result);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// Admin login function
+async function loginAdmin(reqUsername, reqPassword) {
+  try {
+    if (!reqUsername || !reqPassword) {
+      throw new Error('Missing required fields');
+    }
+
+    const adminUser = await adminCollection.findOne({ username: reqUsername });
+
+    if (!adminUser || adminUser.password !== reqPassword) {
+      throw new Error('Invalid credentials');
+    }
+
+    const token = generateToken(adminUser);
+
+    return {
+      message: 'Admin login successful',
+      token: token,
+    };
+  } catch (error) {
+    console.error('Admin Login Error:', error.message);
+    throw new Error('Admin login failed');
+  }
+}
+
+// Express route for admin login
+app.post('/login/admin', async (req, res) => {
+  const { username, password } = req.body;
+  try {
+    const result = await loginAdmin(username, password);
+    res.status(200).json(result);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+
+// Start the server
+app.listen(port, () => {
+  console.log(`Server is running on port ${port}`);
+});

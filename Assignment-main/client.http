@@ -13,10 +13,10 @@ Content-Type: application/json
 Authorization: Bearer
 
 {
-    "Username": "Amareen",
-    "Password": "123",
-    "name":"amar",
-    "email":"amar@gmail.com"
+    "Username": "test ",
+    "Password": "test",
+    "name":"teee",
+    "email":"teese@gmail.com"
 }
 
 #############
